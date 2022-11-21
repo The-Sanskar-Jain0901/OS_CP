@@ -1,5 +1,5 @@
 import java.io.*;
-import java.util.Arrays;
+import java.util.*;
 
 class PCB {
     int jobId;
@@ -37,10 +37,12 @@ class vm {
     static String prv_line = "";
     static CPU cpu;
     static PCB pcb;
+    static int PTR;
+    static HashSet<Integer> uniqueValues;
 
     public static void main(String[] args) throws OSError {
         int line_exec = 0;
-
+        int tempPtr = 0;
         File file = new File(
                 "D:\\OS\\CP\\Phase1\\input.txt");
 
@@ -48,16 +50,23 @@ class vm {
             String buffer;
             int line_no = 0;
             while ((buffer = br.readLine()) != null) {
-                // System.out.println(buffer);
+
                 if (buffer.substring(0, 4).equals("$AMJ")) {
                     load();
+                    tempPtr = PTR;
                     pcb = new PCB(buffer);
                 } else if (buffer.substring(0, 4).equals("$DTA")) {
                     start_exec(line_no + 1);
                     break;
-
                 } else {
-                    line_exec++;
+                    int randNo = getRandom(0, 30);
+                    while (!uniqueValues.isEmpty() && uniqueValues.contains(randNo) && randNo != PTR / 10) {
+                        randNo = getRandom(0, 30);
+                    }
+                    uniqueValues.add(randNo);
+                    memory[tempPtr][2] = (char) ((randNo / 10) + '0');
+                    memory[tempPtr][3] = (char) ((randNo % 10) + '0');
+                    tempPtr++;
 
                     if (line_exec > pcb.TLL) {
                         load();
@@ -66,14 +75,18 @@ class vm {
                         writer.close();
                         throw new OSError("Line Limit Exceeded!! Try Again :(");
                     }
+                    line_exec++;
                     instnSet(buffer);
                 }
 
                 line_no++;
             }
-            // for (int i = 0; i < virtualMemory.length; i++) {
-            // System.out.println(virtualMemory[i]);
-            // }
+            for (int i = 0; i < memory.length; i++) {
+
+                System.out.println(memory[i]);
+            }
+            // System.out.println(PTR);
+
         } catch (IOException e) {
 
             e.printStackTrace();
@@ -133,12 +146,14 @@ class vm {
                     else
                         pcb.TTC++;
                 } else if (inst.equals("BT")) {
-                    if (cpu.toggle)
-                        i = (virtualMemory[i][2] - '0') * 10 + virtualMemory[i][3] - '0';
                     user_program(virtualMemory[i]);
-                    pcb.TTC++;
+                    if (cpu.toggle) {
+                        i = (cpu.ir[2] - '0') * 10 + (cpu.ir[3] - '0');
+                        i--;
+                    }
+
                 } else if (!inst.equals("**")) {
-                    System.out.println(inst);
+                    // System.out.println(inst);
                     System.out.println("OPCODE ERROR");
                     load();
                     PrintWriter writer = new PrintWriter("output.txt");
@@ -156,7 +171,7 @@ class vm {
         }
     }
 
-    private static void user_program(char[] instruction) throws IOException {
+    private static void user_program(char[] instruction) throws IOException, OSError {
         // lr,sr,cr,bt
         cpu.ir = instruction;
         String inst = cpu.ir[0] + "" + cpu.ir[1];
@@ -168,33 +183,68 @@ class vm {
             writer.close();
             return;
         }
-        // System.out.println(inst);
-        if (inst.equals("LR")) {
-            int memory_loc = (cpu.ir[2] - '0') * 10 + (cpu.ir[3] - '0');
+        int add = (cpu.ir[2] - '0') * 10 + (cpu.ir[3] - '0');
+        if (inst.equals("BT")) {
+            // System.out.println(virtualMemory[add - 1]);
+            if (cpu.toggle) {
+                if (virtualMemory[add][0] == '*' && virtualMemory[add][1] == '*') {
+                    System.out.println("NO INSTRUCTION EXISTS");
+                    load();
+                    PrintWriter writer = new PrintWriter("output.txt");
+                    writer.print("");
+                    writer.close();
+                    return;
+                }
+                add--;
+                String insts = virtualMemory[add][0] + "" + virtualMemory[add][1];
+                if (insts.equals("GD") || insts.equals("PD") || insts.equals("H")) {
 
-            cpu.r = memory[memory_loc];
+                    mos(virtualMemory[add], prv_line);
+                } else if (insts.equals("LR") || insts.equals("SR") || insts.equals("CR") ||
+                        insts.equals("BT")) {
+                    user_program(virtualMemory[add]);
+                }
+            }
+            return;
+        }
+
+        int start_add = addressMap(add);
+        // System.out.println(start_add);
+        if (start_add < 0 && !inst.equals("SR")) {
+            load();
+            PrintWriter writer = new PrintWriter("output.txt");
+            writer.print("");
+            writer.close();
+            throw new OSError("INVALID PAGE FAULT");
+        } else if (start_add < 0 && inst.equals("SR")) {
+
+            int randNo = getRandom(0, 30);
+
+            while (!uniqueValues.isEmpty() && uniqueValues.contains(randNo)) {
+                randNo = getRandom(0, 30);
+            }
+            uniqueValues.add(randNo);
+            start_add = -start_add;
+            memory[start_add][2] = (char) ((randNo / 10) + '0');
+            memory[start_add][3] = (char) ((randNo % 10) + '0');
+            start_add = addressMap(add);
+        }
+        start_add = start_add - start_add % 10;
+
+        if (inst.equals("LR")) {
+
+            cpu.r = memory[start_add];
 
         } else if (inst.equals("SR")) {
-            int memory_loc = (cpu.ir[2] - '0') * 10 + (cpu.ir[3] - '0');
-            memory[memory_loc] = cpu.r;
+
+            memory[start_add] = cpu.r;
 
         } else if (inst.equals("CR")) {
-            int memory_loc = (cpu.ir[2] - '0') * 10 + (cpu.ir[3] - '0');
-            if (cpu.r == memory[memory_loc])
+
+            if (cpu.r == memory[start_add])
                 cpu.toggle = true;
             else
                 cpu.toggle = false;
-
-        } else if (inst.equals("BT")) {
-            int memory_loc = (cpu.ir[2] - '0') * 10 + (cpu.ir[3] - '0');
-            if (cpu.toggle) {
-                String insts = memory[memory_loc][0] + "" + memory[memory_loc][1];
-                if (insts.equals("GD") || insts.equals("PD") || insts.equals("H")) {
-                    mos(memory[memory_loc], prv_line);
-                } else if (insts.equals("LR") || insts.equals("SR") || insts.equals("CR") || insts.equals("BT")) {
-                    user_program(memory[memory_loc]);
-                }
-            }
 
         } else {
 
@@ -203,7 +253,7 @@ class vm {
 
     }
 
-    private static void mos(char[] instruction, String buffer) throws IOException {
+    private static void mos(char[] instruction, String buffer) throws IOException, OSError {
         cpu.ir = instruction;
 
         String inst = cpu.ir[0] + "" + cpu.ir[1];
@@ -216,9 +266,39 @@ class vm {
             writer.close();
             return;
         }
-        // System.out.println(instruction);
+
+        if (inst.charAt(0) == 'H') {
+            FileWriter fr = new FileWriter("output.txt", true);
+            fr.write("\n\n");
+            fr.close();
+            return;
+        }
+        int add = (cpu.ir[2] - '0') * 10 + (cpu.ir[3] - '0');
+        int start_add = addressMap(add);
+        // System.out.println(start_add);
+        if (start_add < 0 && !inst.equals("GD")) {
+            load();
+            PrintWriter writer = new PrintWriter("output.txt");
+            writer.print("");
+            writer.close();
+            throw new OSError("INVALID PAGE FAULT");
+        } else if (start_add < 0 && inst.equals("GD")) {
+
+            int randNo = getRandom(0, 30);
+
+            while (!uniqueValues.isEmpty() && uniqueValues.contains(randNo)) {
+                randNo = getRandom(0, 30);
+            }
+            uniqueValues.add(randNo);
+            start_add = -start_add;
+            memory[start_add][2] = (char) ((randNo / 10) + '0');
+            memory[start_add][3] = (char) ((randNo % 10) + '0');
+            start_add = addressMap(add);
+        }
+        start_add = start_add - start_add % 10;
+        // System.out.println(start_add);
+
         if (inst.equals("GD")) {
-            int start_add = (cpu.ir[2] - '0') * 10;
             int k = 0;
             if (buffer.contains(" "))
                 buffer = buffer.replace(' ', '@');
@@ -235,10 +315,9 @@ class vm {
 
             prv_line = buffer;
         } else if (inst.equals("PD")) {
-            // System.out.println(inst);
-            int start_add = (cpu.ir[2] - '0') * 10;
+
             StringBuilder sb = new StringBuilder();
-            for (int i = start_add; i < start_add + 9; i++) {
+            for (int i = start_add; i < start_add + 10; i++) {
 
                 sb.append(memory[i]);
             }
@@ -246,14 +325,9 @@ class vm {
             FileWriter fr = new FileWriter("output.txt", true);
 
             String s = sb.toString().replace('@', ' ');
-            // System.out.println(s);
+
             fr.write(s.replace('*', ' '));
             fr.close();
-        } else if (inst.charAt(0) == 'H') {
-            FileWriter fr = new FileWriter("output.txt", true);
-            fr.write("\n\n");
-            fr.close();
-
         }
     }
 
@@ -282,7 +356,8 @@ class vm {
     }
 
     public static void load() throws FileNotFoundException {
-
+        PTR = getRandom(0, 291);
+        uniqueValues = new HashSet<>();
         cpu = new CPU();
         memory = new char[300][4];
         virtualMemory = new char[100][4];
@@ -290,8 +365,22 @@ class vm {
             Arrays.fill(row, '*');
         for (char[] row : memory)
             Arrays.fill(row, '*');
-        // PrintWriter writer = new PrintWriter("output.txt");
-        // writer.print("");
-        // writer.close();
+
     }
+
+    public static int getRandom(int min, int max) {
+        Random random = new Random();
+        return random.nextInt(max - min) + min;
+    }
+
+    public static int addressMap(int virtualAdress) {
+        int PTE = PTR + (virtualAdress) / 10;
+        if (memory[PTE][2] == '*' && memory[PTE][3] == '*') {
+            return -(PTE);
+        } else {
+            int randValue = (memory[PTE][2] - '0') * 10 + memory[PTE][3] - '0';
+            return randValue * 10 + (virtualAdress) % 10;
+        }
+    }
+
 }
